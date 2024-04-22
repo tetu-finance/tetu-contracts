@@ -40,7 +40,7 @@ contract TetuPawnShop is ERC721Holder, ReentrancyGuard, ITetuPawnShop, ERC2771Co
 
   /// @notice Version of the contract
   /// @dev Should be incremented when contract changed
-  string public constant VERSION = "1.0.7";
+  string public constant VERSION = "1.0.8";
   /// @dev Time lock for any governance actions
   uint constant public TIME_LOCK = 2 days;
   /// @dev Denominator for any internal computation with low precision
@@ -322,7 +322,11 @@ contract TetuPawnShop is ERC721Holder, ReentrancyGuard, ITetuPawnShop, ERC2771Co
   /// @inheritdoc ITetuPawnShop
   function closeAuctionBid(uint bidId) external nonReentrant override {
     AuctionBid storage _bid = auctionBids[bidId];
+    address lender = _bid.lender;
+
     require(_bid.id != 0, "TPS: Auction bid not found");
+    require(_bid.open, "TPS: Bid closed");
+    require(lender == _msgSender(), "TPS: Not lender");
     Position storage pos = positions[_bid.posId];
 
     uint _lastAuctionBidTs = lastAuctionBidTs[pos.id];
@@ -336,7 +340,6 @@ contract TetuPawnShop is ERC721Holder, ReentrancyGuard, ITetuPawnShop, ERC2771Co
     }
     require((isLastBid && isAuctionEnded) || !isLastBid || !pos.open || isAuctionOverdue, "TPS: Auction is not ended");
 
-    address lender = _bid.lender;
     lenderOpenBids[lender][pos.id] = 0;
     _bid.open = false;
     IERC20(pos.acquired.acquiredToken).safeTransfer(lender, _bid.amount);
