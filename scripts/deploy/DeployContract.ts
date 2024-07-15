@@ -1,4 +1,4 @@
-import {BigNumber, ContractFactory, utils} from "ethers";
+import {BigNumber, ContractFactory, ethers, providers, utils} from "ethers";
 import {SignerWithAddress} from "@nomiclabs/hardhat-ethers/signers";
 import {Libraries} from "hardhat-deploy/dist/types";
 import {Logger} from "tslog";
@@ -10,7 +10,7 @@ const log: Logger = new Logger(logSettings);
 const libraries = new Map<string, string[]>([
   ['SmartVault', ['VaultLibrary',]],
   ['SmartVaultV110', ['VaultLibrary',]],
-  ['ZapV2', ['ZapV2UniswapLibrary','ZapV2Balancer1Library','ZapV2Balancer2Library',]],
+  ['ZapV2', ['ZapV2UniswapLibrary', 'ZapV2Balancer1Library', 'ZapV2Balancer2Library',]],
 ]);
 
 export async function deployContract<T extends ContractFactory>(
@@ -47,7 +47,7 @@ export async function deployContract<T extends ContractFactory>(
   }
 
 
-  const libs: string[]|undefined = libraries.get(name);
+  const libs: string[] | undefined = libraries.get(name);
   let _factory;
   if (libs) {
     const librariesObj: Libraries = {};
@@ -69,14 +69,9 @@ export async function deployContract<T extends ContractFactory>(
       signer
     )) as T;
   }
-  // let gas = 5_000_000;
-  // if (hre.network.name === 'hardhat') {
-  //   gas = 999_999_999;
-  // } else if (hre.network.name === 'mumbai') {
-  //   gas = 5_000_000;
-  // }
-  // const instance = await _factory.deploy(...args, {gasLimit: gas, gasPrice: Math.floor(+gasPrice * 1.1)});
-  const instance = await _factory.deploy(...args, {gasLimit: 30_000_000, gasPrice: Math.floor(+gasPrice * 1.1)});
+  const instance = await _factory.deploy(...args, {
+    ...(await txParams(await ethers.provider.getFeeData(), hre.network.config.chainId))
+  });
   log.info('Deploy tx:', instance.deployTransaction.hash);
   await instance.deployed();
 
@@ -134,6 +129,30 @@ async function verifyWithArgs(hre: any, address: string, args: any[]) {
   } catch (e) {
     log.info('error verify ' + e);
   }
+}
+
+
+async function txParams(feeData: ethers.providers.FeeData, networkId: number) {
+  console.log('feeData', feeData, networkId);
+  const gasPrice = '0x' + Math.floor((feeData.maxFeePerGas as BigNumber).toNumber() * 1.5).toString(16);
+  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas?.toNumber() ?? 0;
+  // tslint:disable-next-line:no-any
+  let result: any = {
+    gasPrice
+  }
+  if (networkId === 137) {
+    result = {
+      maxPriorityFeePerGas: Math.max(maxPriorityFeePerGas, 31_000_000_000),
+      maxFeePerGas: gasPrice,
+    }
+  } else if (networkId === 1) {
+    result = {
+      maxPriorityFeePerGas,
+      maxFeePerGas: gasPrice
+    }
+  }
+  console.log('TX params', result);
+  return result;
 }
 
 

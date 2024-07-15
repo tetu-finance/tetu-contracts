@@ -558,4 +558,14 @@ describe("Price calculator matic tests", function () {
     expect(price).is.approximately(21000, 5000);
   });
 
+  it("vault bb-t-USD price", async () => {
+    if (!(await DeployerUtils.isNetwork(137))) {
+      return;
+    }
+    const price = await PriceCalculatorUtils.getFormattedPrice(calculator,
+      '0xb3d658d5b95BF04E2932370DD1FF976fe18dd66A', MaticAddresses.USDC_TOKEN);
+    console.log(price);
+    expect(price).is.approximately(1, 0.1);
+  });
+
 });

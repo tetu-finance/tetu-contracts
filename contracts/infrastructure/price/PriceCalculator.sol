@@ -10,6 +10,8 @@
 * to Tetu and/or the underlying software and the use thereof are disclaimed.
 */
 
+pragma solidity 0.8.4;
+
 import "./IPriceCalculator.sol";
 import "../../base/governance/ControllableV2.sol";
 import "../../third_party/uniswap/IUniswapV2Factory.sol";
@@ -33,7 +35,10 @@ import "../../third_party/dystopia/IDystopiaPair.sol";
 import "../../openzeppelin/Math.sol";
 import "../../base/interface/ITetuLiquidator.sol";
 
-pragma solidity 0.8.4;
+interface IERC4626 {
+  function convertToShares(uint256 assets) external view returns (uint256 shares);
+  function asset() external view returns (address assetTokenAddress);
+}
 
 /// @title Calculate current price for token using data from swap platforms
 /// @author belbix, bogdoslav
@@ -42,17 +47,24 @@ contract PriceCalculator is Initializable, ControllableV2, IPriceCalculator {
   // ************ CONSTANTS **********************
 
   string public constant VERSION = "1.7.0";
-  address public constant FIREBIRD_FACTORY = 0x5De74546d3B86C8Df7FEEc30253865e1149818C8;
-  address public constant DYSTOPIA_FACTORY = 0x1d21Db6cde1b18c7E47B0F7F42f4b3F68b9beeC9;
-  address public constant CONE_FACTORY = 0x0EFc2D2D054383462F2cD72eA2526Ef7687E1016;
-  address public constant UNIV3_FACTORY_ETHEREUM = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
+  address internal constant FIREBIRD_FACTORY = 0x5De74546d3B86C8Df7FEEc30253865e1149818C8;
+  address internal constant DYSTOPIA_FACTORY = 0x1d21Db6cde1b18c7E47B0F7F42f4b3F68b9beeC9;
+  address internal constant CONE_FACTORY = 0x0EFc2D2D054383462F2cD72eA2526Ef7687E1016;
+  address internal constant UNIV3_FACTORY_ETHEREUM = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
   bytes32 internal constant _DEFAULT_TOKEN_SLOT = 0x3787EA0F228E63B6CF40FE5DE521CE164615FC0FBC5CF167A7EC3CDBC2D38D8F;
-  uint256 constant public PRECISION_DECIMALS = 18;
-  uint256 constant public DEPTH = 20;
-  address public constant CRV_USD_BTC_ETH_MATIC = 0xdAD97F7713Ae9437fa9249920eC8507e5FbB23d3;
-  address public constant CRV_USD_BTC_ETH_FANTOM = 0x58e57cA18B7A47112b877E31929798Cd3D703b0f;
-  address public constant BEETHOVEN_VAULT_FANTOM = 0x20dd72Ed959b6147912C2e529F0a0C651c33c9ce;
-  address public constant BALANCER_VAULT_ETHEREUM = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
+  uint256 internal constant PRECISION_DECIMALS = 18;
+  uint256 internal constant DEPTH = 20;
+  address internal constant CRV_USD_BTC_ETH_MATIC = 0xdAD97F7713Ae9437fa9249920eC8507e5FbB23d3;
+  address internal constant CRV_USD_BTC_ETH_FANTOM = 0x58e57cA18B7A47112b877E31929798Cd3D703b0f;
+  address internal constant BEETHOVEN_VAULT_FANTOM = 0x20dd72Ed959b6147912C2e529F0a0C651c33c9ce;
+  address internal constant BALANCER_VAULT_ETHEREUM = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
+  // ERC4626 vaults
+  // strict vaults for boosted pools
+  address internal constant T_USDC = 0x113f3D54C31EBC71510FD664c8303B34fBc2B355;
+  address internal constant T_DAI = 0xacE2aC58E1E5A7BFE274916c4d82914D490Ed4a5;
+  address internal constant T_STMATIC = 0xF813a454C975ad418e8dB18764a2191D182478F4;
+  address internal constant T_USDT = 0x236975DA9f0761e9CF3c2B0F705d705e22829886;
+  address internal constant T_WMATIC = 0x45F376811B00922b06f1498A68A1CFd50122DD71;
 
   // ************ VARIABLES **********************
   // !!! DON'T CHANGE NAMES OR ORDERING !!!
@@ -128,6 +140,16 @@ contract PriceCalculator is Initializable, ControllableV2, IPriceCalculator {
         token = ISmartVault(token).underlying();
         rateDenominator = rateDenominator * (10 ** IERC20Extended(token).decimals());
       }
+    }
+    if ( T_USDC == token
+      || T_DAI == token
+      || T_STMATIC == token
+      || T_USDT == token
+      || T_WMATIC == token
+    ) {
+      rateDenominator = 10 ** IERC20Extended(token).decimals();
+      rate = IERC4626(token).convertToShares(rateDenominator);
+      token = IERC4626(token).asset();
     }
 
     // if the token exists in the mapping, we'll swap it for the replacement
@@ -266,7 +288,7 @@ contract PriceCalculator is Initializable, ControllableV2, IPriceCalculator {
     require(deep < DEPTH, "PC: too deep");
 
     (address keyToken,, address lpAddress) = getLargestPool(token, usedLps);
-    require(lpAddress != address(0), toAsciiString(token));
+    require(lpAddress != address(0), string(abi.encodePacked("Not found price for 0x", _toAsciiString(token))));
     usedLps[deep] = lpAddress;
     deep++;
 
@@ -518,23 +540,6 @@ contract PriceCalculator is Initializable, ControllableV2, IPriceCalculator {
 
   // ************* INTERNAL *****************
 
-  function toAsciiString(address x) internal pure returns (string memory) {
-    bytes memory s = new bytes(40);
-    for (uint i = 0; i < 20; i++) {
-      bytes1 b = bytes1(uint8(uint(uint160(x)) / (2 ** (8 * (19 - i)))));
-      bytes1 hi = bytes1(uint8(b) / 16);
-      bytes1 lo = bytes1(uint8(b) - 16 * uint8(hi));
-      s[2 * i] = char(hi);
-      s[2 * i + 1] = char(lo);
-    }
-    return string(s);
-  }
-
-  function char(bytes1 b) internal pure returns (bytes1 c) {
-    if (uint8(b) < 10) return bytes1(uint8(b) + 0x30);
-    else return bytes1(uint8(b) + 0x57);
-  }
-
   function isEqualString(string memory arg1, string memory arg2) internal pure returns (bool) {
     bool check = (keccak256(abi.encodePacked(arg1)) == keccak256(abi.encodePacked(arg2))) ? true : false;
     return check;
@@ -715,5 +720,44 @@ contract PriceCalculator is Initializable, ControllableV2, IPriceCalculator {
     _onlyControllerOrGovernance();
     tetuLiquidator = liquidator;
     emit ChangeLiquidator(liquidator);
+  }
+
+
+  /// @dev Inspired by OraclizeAPI's implementation - MIT license
+  ///      https://github.com/oraclize/ethereum-api/blob/b42146b063c7d6ee1358846c198246239e9360e8/oraclizeAPI_0.4.25.sol
+  function _toString(uint value) internal pure returns (string memory) {
+    if (value == 0) {
+      return "0";
+    }
+    uint temp = value;
+    uint digits;
+    while (temp != 0) {
+      digits++;
+      temp /= 10;
+    }
+    bytes memory buffer = new bytes(digits);
+    while (value != 0) {
+      digits -= 1;
+      buffer[digits] = bytes1(uint8(48 + uint(value % 10)));
+      value /= 10;
+    }
+    return string(buffer);
+  }
+
+  function _toAsciiString(address x) internal pure returns (string memory) {
+    bytes memory s = new bytes(40);
+    for (uint i = 0; i < 20; i++) {
+      bytes1 b = bytes1(uint8(uint(uint160(x)) / (2 ** (8 * (19 - i)))));
+      bytes1 hi = bytes1(uint8(b) / 16);
+      bytes1 lo = bytes1(uint8(b) - 16 * uint8(hi));
+      s[2 * i] = _char(hi);
+      s[2 * i + 1] = _char(lo);
+    }
+    return string(s);
+  }
+
+  function _char(bytes1 b) internal pure returns (bytes1 c) {
+    if (uint8(b) < 10) return bytes1(uint8(b) + 0x30);
+    else return bytes1(uint8(b) + 0x57);
   }
 }
