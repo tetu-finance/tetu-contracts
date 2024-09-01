@@ -52,6 +52,10 @@ const argv = require('yargs/yargs')()
       type: "string",
       default: 'https://sepolia.optimism.io'
     },
+    realRpcUrl: {
+      type: "string",
+      default: 'https://real.drpc.org'
+    },
     infuraKey: {
       type: "string",
     },
@@ -266,6 +270,16 @@ export default {
       url: 'https://rpc.sonic.fantom.network/',
       accounts: [argv.privateKey],
     },
+    real: {
+      chainId: 111188,
+      url: argv.realRpcUrl || 'https://real.drpc.org',
+      accounts: [argv.privateKey],
+      verify: {
+        etherscan: {
+          apiKey: 'any'
+        }
+      }
+    },
   },
   etherscan: {
     //  https://hardhat.org/plugins/nomiclabs-hardhat-etherscan.html#multiple-api-keys-and-alternative-block-explorers
@@ -278,6 +292,7 @@ export default {
       bsc: argv.networkScanKeyBsc || argv.networkScanKey,
       skale_test: 'any',
       imm_test: 'any',
+      real: 'any',
       sonict: 'lore-public',
       base: argv.networkScanKeyBase,
       op_sepolia: argv.networkScanKeyOpSepolia,
@@ -321,6 +336,14 @@ export default {
         urls: {
           apiURL: " https://api.lorescan.com/64165",
           browserURL: "https://sonicscan.io/"
+        }
+      },
+      {
+        network: "real",
+        chainId: 111188,
+        urls: {
+          apiURL: "https://explorer.re.al/api",
+          browserURL: "https://explorer.re.al/"
         }
       },
     ]
